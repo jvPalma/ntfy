@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => ({
         navigateFallback: "index.html",
       },
       injectManifest: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,json}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,json,woff2}"], // Fork: woff2 so the self-hosted fonts work offline
         globIgnores: ["config.js"],
         manifestTransforms: [
           (entries) => ({

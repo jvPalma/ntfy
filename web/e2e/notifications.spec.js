@@ -292,3 +292,207 @@ test.describe("browser notifications", () => {
     await expect.poll(() => shown(page)).toEqual(["high priority"]);
   });
 });
+
+// Fork: "ntfy jv" message rendering (openspec/changes/web-message-rendering)
+test.describe("fork message rendering", () => {
+  const markdown = (request, data) => request.post(`/${topic}`, { headers: { "Content-Type": "text/markdown" }, data });
+  const items = (page) => page.getByRole("listitem", { name: "Notification" });
+  const css = (locator, property) => locator.evaluate((el, p) => getComputedStyle(el)[p], property);
+
+  test("fonts are IBM Plex Sans and JetBrains Mono, all self-hosted", async ({ page, request }) => {
+    await request.post(`/${topic}`, { data: "font check" });
+    const item = items(page);
+    await expect(item.getByText("font check")).toBeVisible();
+    expect(await css(item.getByText("font check"), "fontFamily")).toContain("IBM Plex Sans");
+    expect(await css(item.locator(".ntfy-date"), "fontFamily")).toContain("JetBrains Mono NF");
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => document.fonts.check('16px "IBM Plex Sans"'))).toBe(true);
+    // Reload with a request listener, so the fonts and every other asset are seen being fetched
+    const hosts = new Set();
+    page.on("request", (r) => r.url().startsWith("http") && hosts.add(new URL(r.url()).host));
+    await page.reload();
+    await expect(items(page).getByText("font check")).toBeVisible();
+    expect([...hosts]).toEqual([new URL(baseURL).host]);
+  });
+
+  test("card text is 80 % of upstream", async ({ page, request }) => {
+    await request.post(`/${topic}`, { data: "compact body" });
+    const item = items(page);
+    await expect(item.getByText("compact body")).toBeVisible();
+    expect(await css(item.getByText("compact body"), "fontSize")).toBe("12.8px");
+    expect(await css(item.locator(".ntfy-date"), "fontSize")).toBe("11.2px");
+  });
+
+  test("markdown tables render and scroll inside the card", async ({ page, request }) => {
+    await markdown(request, "| a | b |\n|---|---|\n| 1 | 2 |");
+    const table = items(page).locator("table");
+    await expect(table.locator("th")).toHaveText(["a", "b"]);
+    await expect(table.locator("td")).toHaveText(["1", "2"]);
+
+    await page.setViewportSize({ width: 390, height: 800 });
+    const cols = Array.from({ length: 12 }, (_, i) => `column-${i}`);
+    await markdown(request, `| ${cols.join(" | ")} |\n|${cols.map(() => "---").join("|")}|\n| ${cols.join(" | ")} |`);
+    await expect(items(page).locator("th", { hasText: "column-11" })).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    expect(await page.locator("#main").evaluate((m) => m.scrollWidth <= m.clientWidth)).toBe(true);
+  });
+
+  test("a plain-text message with pipes is not a table", async ({ page, request }) => {
+    await request.post(`/${topic}`, { data: "| a | b |\n|---|---|\n| 1 | 2 |" });
+    await expect(items(page).getByText("| 1 | 2 |")).toBeVisible();
+    await expect(items(page).locator("table")).toHaveCount(0);
+  });
+
+  test("markdown stays safe", async ({ page, request }) => {
+    await markdown(request, '[unsafe link](javascript:alert(1))\n\n<img src=x onerror="alert(1)">\n\n`<b>not bold</b>`');
+    const link = items(page).getByRole("link", { name: "unsafe link" });
+    await expect(link).toHaveAttribute("href", "");
+    await expect(items(page).locator(".ntfy-markdown img")).toHaveCount(0);
+    await expect(items(page).locator(".ntfy-markdown code", { hasText: "<b>not bold</b>" })).toBeVisible();
+    await expect(items(page).locator(".ntfy-markdown b")).toHaveCount(0);
+  });
+
+  for (const colorScheme of ["light", "dark"]) {
+    test(`bash block is Monokai Night in ${colorScheme}`, async ({ page, request }) => {
+      await page.emulateMedia({ colorScheme });
+      await markdown(request, '```bash\n# say hi\necho "$HOME"\n```');
+      const comment = items(page).locator(".hljs-comment", { hasText: "# say hi" });
+      await expect(comment).toHaveCSS("color", "rgb(117, 113, 94)");
+      await expect(items(page).locator("pre.ntfy-code")).toHaveCSS("background-color", "rgb(31, 31, 31)");
+      await expect(items(page).locator(".hljs-variable", { hasText: "$HOME" })).toHaveCSS("color", "rgb(253, 151, 31)");
+    });
+  }
+
+  test("an alias and an unknown language", async ({ page, request }) => {
+    await markdown(request, "```yml\nkey: value\n```\n\n```brainfuck\n+++.\n```");
+    await expect(items(page).locator(".hljs-attr", { hasText: "key" })).toHaveCSS("color", "rgb(166, 226, 46)");
+    const unknown = items(page).locator("pre.ntfy-code", { hasText: "+++." });
+    await expect(unknown).toHaveCSS("color", "rgb(221, 221, 221)");
+    await expect(unknown.locator("span")).toHaveCount(0);
+  });
+
+  test("the highlighter only loads for code with a language", async ({ page, request }) => {
+    const requested = [];
+    page.on("request", (r) => requested.push(r.url()));
+    const loaded = () => requested.some((url) => url.includes("codeHighlight"));
+    await markdown(request, "**no code here**");
+    await expect(page.locator("strong", { hasText: "no code here" })).toBeVisible();
+    expect(loaded()).toBe(false);
+    await markdown(request, "```bash\necho hi\n```");
+    await expect(items(page).locator(".hljs-built_in", { hasText: "echo" })).toBeVisible();
+    expect(loaded()).toBe(true);
+  });
+
+  test("copy button copies only the code", async ({ page, context, request }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await markdown(request, "Before\n\n```bash\n# comment\necho one\n```\n\nAfter");
+    const button = items(page).getByRole("button", { name: "Copy code" });
+    await expect(button).toHaveText("\u{F018F} copy");
+    await button.focus();
+    await expect(button).toBeFocused();
+    await button.click();
+    await expect(button).toHaveText("\u{F012C} copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("# comment\necho one");
+    await expect(page.getByText("Copied to clipboard")).toHaveCount(0);
+    // The highlighting is still there after the button changed
+    await expect(items(page).locator(".hljs-comment", { hasText: "# comment" })).toHaveCSS("color", "rgb(117, 113, 94)");
+    await expect(button).toHaveText("\u{F018F} copy", { timeout: 5000 });
+  });
+
+  test("a failed copy says so", async ({ page, request }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.reject(new Error("denied")) } });
+    });
+    await page.reload();
+    await markdown(request, "```bash\necho fail\n```");
+    await items(page).getByRole("button", { name: "Copy code" }).click();
+    await expect(page.getByText("Could not copy code")).toBeVisible();
+  });
+});
+
+// Fork: chat order inside a topic (openspec/changes/web-message-rendering, web-topic-view)
+test.describe("fork chat order", () => {
+  const scrollMainToTop = (page) =>
+    page.evaluate(() => {
+      document.getElementById("main").scrollTop = 0;
+    });
+  const items = (page) => page.getByRole("listitem", { name: "Notification" });
+  // Publishes n messages to a new topic, then subscribes, so they all arrive in one poll
+  const topicWith = async (page, request, n) => {
+    const name = unique("chat");
+    for (let i = 1; i <= n; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await request.post(`/${name}`, { data: `msg ${i}` });
+      expect(response.ok()).toBeTruthy();
+    }
+    await subscribe(page, name);
+    return name;
+  };
+
+  test("a topic lists oldest to newest, top to bottom", async ({ page, request }) => {
+    // Message times have one-second resolution, so space the messages out to get a defined order
+    for (let i = 1; i <= 3; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await request.post(`/${topic}`, { data: `msg ${i}` });
+      // eslint-disable-next-line no-await-in-loop
+      await page.waitForTimeout(1100);
+    }
+    await expect(items(page)).toHaveCount(3);
+    await expect(items(page).nth(0)).toContainText("msg 1");
+    await expect(items(page).nth(2)).toContainText("msg 3");
+  });
+
+  test("a long topic opens at the newest message, above the message bar", async ({ page, request }) => {
+    await topicWith(page, request, 50);
+    const newest = items(page).last();
+    await expect(newest).toBeInViewport({ ratio: 1 });
+    const bar = await page.getByPlaceholder("Type a message here").boundingBox();
+    const box = await newest.boundingBox();
+    expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+  });
+
+  test("scrolling up loads older messages without jumping", async ({ page, request }) => {
+    await topicWith(page, request, 50);
+    await expect(items(page)).toHaveCount(20);
+    await expect(items(page).last()).toBeInViewport();
+    const anchorText = await items(page).first().locator("p").nth(1).innerText();
+    const anchor = items(page).filter({ has: page.getByText(anchorText, { exact: true }) });
+    const before = await anchor.evaluate((el) => {
+      document.getElementById("main").scrollTop = 0;
+      return el.getBoundingClientRect().top;
+    });
+    await expect(items(page)).toHaveCount(40);
+    const after = await anchor.evaluate((el) => el.getBoundingClientRect().top);
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(5);
+    // The whole history is reachable by scrolling up again
+    await expect
+      .poll(async () => {
+        await scrollMainToTop(page);
+        return items(page).count();
+      })
+      .toBe(50);
+  });
+
+  test("a new message scrolls into view, even while reading history", async ({ page, request }) => {
+    const name = await topicWith(page, request, 30);
+    await expect(items(page)).toHaveCount(20);
+    await scrollMainToTop(page);
+    // Message times have one-second resolution; publish in a later second so it is the newest
+    await page.waitForTimeout(1100);
+    await request.post(`/${name}`, { data: "late message" });
+    await expect(items(page).filter({ hasText: "late message" })).toBeInViewport({ ratio: 1 });
+  });
+
+  test("all notifications stay newest first", async ({ page, request }) => {
+    for (let i = 1; i <= 3; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await request.post(`/${topic}`, { data: `msg ${i}` });
+      // eslint-disable-next-line no-await-in-loop
+      await page.waitForTimeout(1100);
+    }
+    await expect(items(page)).toHaveCount(3);
+    await page.getByRole("button", { name: "All notifications" }).click();
+    await expect(items(page).nth(0)).toContainText("msg 3");
+    await expect(items(page).nth(2)).toContainText("msg 1");
+  });
+});

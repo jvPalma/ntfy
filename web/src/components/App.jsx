@@ -41,7 +41,15 @@ const App = () => {
   const prefersDarkMode = useMediaQuery("(prefers-color-scheme: dark)");
   const themePreference = useLiveQuery(() => prefs.theme());
   const isDark = darkModeEnabled(prefersDarkMode, themePreference);
-  const theme = React.useMemo(() => createTheme({ ...(isDark ? darkTheme : lightTheme), direction: languageDir }), [isDark, languageDir]);
+  const theme = React.useMemo(
+    () =>
+      createTheme({
+        ...(isDark ? darkTheme : lightTheme),
+        direction: languageDir,
+        typography: { fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }, // Fork: IBM Plex Sans for all UI text
+      }),
+    [isDark, languageDir],
+  );
 
   useEffect(() => {
     document.documentElement.setAttribute("lang", getKebabCaseLangStr(i18n.language));

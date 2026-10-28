@@ -307,7 +307,8 @@ const SubscriptionItem = (props) => {
     subscription.state === ConnectionState.Connecting ? (
       <CircularProgress size="24px" />
     ) : (
-      <Badge badgeContent={iconBadge} invisible={subscription.new === 0} color="primary">
+      // Fork: ntfy-count gives the unread count the mono font
+      <Badge className="ntfy-count" badgeContent={iconBadge} invisible={subscription.new === 0} color="primary">
         <ChatBubbleOutlineIcon />
       </Badge>
     );

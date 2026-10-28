@@ -1,0 +1,140 @@
+/* Fork: "ntfy jv" styles (fonts, card sizes, Markdown tables, Monokai Night code).
+ * Plain CSS on purpose, so the design-system rewrite can carry it over as is. */
+
+:root {
+  --ntfy-font-mono: "JetBrains Mono NF", ui-monospace, monospace;
+}
+
+code,
+pre,
+.ntfy-date,
+.ntfy-count .MuiBadge-badge {
+  font-family: var(--ntfy-font-mono);
+}
+
+/* Message card text at 80 % of upstream (Android fork: res/values/fork.xml). */
+:root {
+  --ntfy-card-body: 0.8rem;
+  --ntfy-card-title: 1.2rem;
+  --ntfy-card-meta: 0.7rem;
+  --ntfy-card-attachment: 0.7rem;
+  --ntfy-card-action: 0.7rem;
+  --ntfy-card-code: calc(var(--ntfy-card-body) * 12.5 / 14.4);
+}
+
+/* Markdown tables (GFM): wide tables scroll inside the card, not the page. */
+.ntfy-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  line-height: 1.4;
+}
+
+.ntfy-markdown th,
+.ntfy-markdown td {
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+
+.ntfy-markdown th {
+  font-weight: 600;
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.ntfy-markdown code {
+  font-size: var(--ntfy-card-code);
+}
+
+/* Code blocks: Monokai Night (VS Code theme by fabiospampinato), the same in light and dark. */
+.ntfy-code-wrap {
+  position: relative;
+}
+
+.ntfy-code-copy {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.5rem;
+  padding: 0.15rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: #66d9ef;
+  font-family: var(--ntfy-font-mono);
+  font-size: calc(var(--ntfy-card-code) * 0.85);
+  cursor: pointer;
+}
+
+.ntfy-code-copy:focus-visible {
+  outline: 2px solid #66d9ef;
+  border-radius: 3px;
+}
+
+.ntfy-markdown pre.ntfy-code {
+  margin: 0;
+  padding: 1.6rem 0.9rem 0.9rem;
+  overflow-x: auto;
+  border-radius: 3px;
+  background: #1f1f1f;
+  color: #dddddd;
+  line-height: 1.4;
+}
+
+.ntfy-code .hljs-comment,
+.ntfy-code .hljs-quote,
+.ntfy-code .hljs-meta {
+  color: #75715e;
+}
+
+.ntfy-code .hljs-string,
+.ntfy-code .hljs-regexp,
+.ntfy-code .hljs-link,
+.ntfy-code .hljs-char.escape_ {
+  color: #e6db74;
+}
+
+.ntfy-code .hljs-keyword,
+.ntfy-code .hljs-operator,
+.ntfy-code .hljs-name,
+.ntfy-code .hljs-selector-tag,
+.ntfy-code .hljs-selector-id,
+.ntfy-code .hljs-selector-class,
+.ntfy-code .hljs-deletion {
+  color: #f92672;
+}
+
+.ntfy-code .hljs-number,
+.ntfy-code .hljs-literal,
+.ntfy-code .hljs-symbol {
+  color: #ae81ff;
+}
+
+.ntfy-code .hljs-title.function_,
+.ntfy-code .hljs-title.class_,
+.ntfy-code .hljs-attr,
+.ntfy-code .hljs-attribute,
+.ntfy-code .hljs-addition,
+.ntfy-code .hljs-section {
+  color: #a6e22e;
+}
+
+.ntfy-code .hljs-built_in,
+.ntfy-code .hljs-type,
+.ntfy-code .hljs-meta .hljs-keyword {
+  color: #66d9ef;
+}
+
+.ntfy-code .hljs-variable,
+.ntfy-code .hljs-template-variable,
+.ntfy-code .hljs-params {
+  color: #fd971f;
+}
+
+.ntfy-code .hljs-property {
+  color: #cfcfc2;
+}
+
+.ntfy-code .hljs-punctuation {
+  color: #f8f8f2;
+}

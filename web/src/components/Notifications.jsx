@@ -17,7 +17,7 @@ import {
   Button,
 } from "@mui/material";
 import * as React from "react";
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import InfiniteScroll from "react-infinite-scroll-component";
@@ -37,6 +37,7 @@ import logoOutline from "../img/ntfy-outline.svg";
 import AttachmentIcon from "./AttachmentIcon";
 import { useAutoSubscribe } from "./hooks";
 import { usePrefCache } from "./PrefCache";
+import ChatOrderScroll from "./ChatOrderScroll";
 
 const priorityFiles = {
   1: priority1,
@@ -85,7 +86,7 @@ const SingleSubscriptionList = (props) => {
   if (notifications.length === 0) {
     return <NoNotifications subscription={subscription} />;
   }
-  return <NotificationList id={subscription.id} notifications={notifications} messageBar />;
+  return <NotificationList id={subscription.id} notifications={notifications} messageBar chatOrder />; // Fork: chatOrder
 };
 
 const NotificationList = (props) => {
@@ -93,6 +94,7 @@ const NotificationList = (props) => {
   const pageSize = 20;
   const { notifications } = props;
   const [snackOpen, setSnackOpen] = useState(false);
+  const [copyErrorOpen, setCopyErrorOpen] = useState(false); // Fork: code block copy failed
   const [maxCount, setMaxCount] = useState(pageSize);
   const count = Math.min(notifications.length, maxCount);
 
@@ -107,36 +109,69 @@ const NotificationList = (props) => {
     [props.id],
   );
 
+  const loadMore = useCallback(() => setMaxCount((prev) => prev + pageSize), []);
+
+  const list = (
+    <Container
+      maxWidth="md"
+      role="list"
+      aria-label={t("notifications_list")}
+      sx={{
+        marginTop: 3,
+        marginBottom: props.messageBar ? "100px" : 3, // Hack to avoid hiding notifications behind the message bar
+      }}
+    >
+      <Stack spacing={3}>
+        {/* Fork: in chat order the oldest loaded message is on top and the newest at the bottom */}
+        {(props.chatOrder ? notifications.slice(0, count).reverse() : notifications.slice(0, count)).map((notification) => (
+          <NotificationItem
+            key={notification.id}
+            notification={notification}
+            onShowSnack={() => setSnackOpen(true)}
+            onCopyError={() => setCopyErrorOpen(true)}
+          />
+        ))}
+        <Snackbar
+          open={snackOpen}
+          autoHideDuration={3000}
+          onClose={() => setSnackOpen(false)}
+          message={t("notifications_copied_to_clipboard")}
+        />
+        <Snackbar
+          open={copyErrorOpen}
+          autoHideDuration={3000}
+          onClose={() => setCopyErrorOpen(false)}
+          message={t("notifications_code_copy_failed")}
+        />
+      </Stack>
+    </Container>
+  );
+
+  // Fork: a single topic reads like a chat (see ChatOrderScroll.jsx)
+  if (props.chatOrder) {
+    return (
+      <ChatOrderScroll
+        id={props.id}
+        newestId={notifications[0]?.id}
+        count={count}
+        hasMore={count < notifications.length}
+        onLoadMore={loadMore}
+      >
+        {list}
+      </ChatOrderScroll>
+    );
+  }
+
   return (
     <InfiniteScroll
       dataLength={count}
-      next={() => setMaxCount((prev) => prev + pageSize)}
+      next={loadMore}
       hasMore={count < notifications.length}
       loader={<>Loading ...</>}
       scrollThreshold={0.7}
       scrollableTarget="main"
     >
-      <Container
-        maxWidth="md"
-        role="list"
-        aria-label={t("notifications_list")}
-        sx={{
-          marginTop: 3,
-          marginBottom: props.messageBar ? "100px" : 3, // Hack to avoid hiding notifications behind the message bar
-        }}
-      >
-        <Stack spacing={3}>
-          {notifications.slice(0, count).map((notification) => (
-            <NotificationItem key={notification.id} notification={notification} onShowSnack={() => setSnackOpen(true)} />
-          ))}
-          <Snackbar
-            open={snackOpen}
-            autoHideDuration={3000}
-            onClose={() => setSnackOpen(false)}
-            message={t("notifications_copied_to_clipboard")}
-          />
-        </Stack>
-      </Container>
+      {list}
     </InfiniteScroll>
   );
 };
@@ -164,13 +199,13 @@ const autolink = (s) => {
 // text/markdown notification is actually rendered (see MarkdownContent.jsx).
 const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
-const NotificationBody = ({ notification }) => {
+const NotificationBody = ({ notification, onCopyError }) => {
   const displayAsMarkdown = notification.content_type === "text/markdown";
   const formatted = formatMessage(notification);
   if (displayAsMarkdown) {
     return (
       <Suspense fallback={null}>
-        <MarkdownContent content={formatted} />
+        <MarkdownContent content={formatted} onCopyError={onCopyError} />
       </Suspense>
     );
   }
@@ -222,7 +257,12 @@ const NotificationItem = (props) => {
             </IconButton>
           </Tooltip>
         )}
-        <Typography sx={{ fontSize: 14 }} color="text.secondary">
+        {/* Fork: mono font and compact size for the date; card sizes live in /static/css/fork.css */}
+        <Typography
+          className="ntfy-date"
+          sx={{ fontSize: "var(--ntfy-card-meta)", fontFamily: "var(--ntfy-font-mono)" }}
+          color="text.secondary"
+        >
           {date}
           {[1, 2, 4, 5].includes(notification.priority) && (
             <img
@@ -245,23 +285,23 @@ const NotificationItem = (props) => {
           )}
         </Typography>
         {notification.title && (
-          <Typography variant="h5" component="div" role="rowheader">
+          <Typography variant="h5" component="div" role="rowheader" sx={{ fontSize: "var(--ntfy-card-title)" }}>
             {formatTitle(notification)}
           </Typography>
         )}
-        <Typography variant="body1" sx={{ whiteSpace: "pre-line", overflowX: "auto" }}>
-          <NotificationBody notification={notification} />
+        <Typography variant="body1" sx={{ whiteSpace: "pre-line", overflowX: "auto", fontSize: "var(--ntfy-card-body)" }}>
+          <NotificationBody notification={notification} onCopyError={props.onCopyError} />
           {maybeActionErrors(notification)}
         </Typography>
         {attachment && <Attachment attachment={attachment} />}
         {tags && (
-          <Typography sx={{ fontSize: 14 }} color="text.secondary">
+          <Typography sx={{ fontSize: "var(--ntfy-card-meta)" }} color="text.secondary">
             {t("notifications_tags")}: {tags}
           </Typography>
         )}
       </CardContent>
       {showActions && (
-        <CardActions sx={{ paddingTop: 0 }}>
+        <CardActions sx={{ paddingTop: 0, "& .MuiButton-root": { fontSize: "var(--ntfy-card-action)" } }}>
           {hasAttachmentActions && (
             <>
               <Tooltip title={t("notifications_attachment_copy_url_title")}>
@@ -346,7 +386,10 @@ const Attachment = (props) => {
         }}
       >
         <AttachmentIcon type={attachment.type} />
-        <Typography variant="body2" sx={{ marginLeft: 1, textAlign: "left", color: "text.primary" }}>
+        <Typography
+          variant="body2"
+          sx={{ marginLeft: 1, textAlign: "left", color: "text.primary", fontSize: "var(--ntfy-card-attachment)" }}
+        >
           <b>{attachment.name}</b>
           {maybeInfoText}
         </Typography>
@@ -377,7 +420,10 @@ const Attachment = (props) => {
         }}
       >
         <AttachmentIcon type={attachment.type} />
-        <Typography variant="body2" sx={{ marginLeft: 1, textAlign: "left", color: "text.primary" }}>
+        <Typography
+          variant="body2"
+          sx={{ marginLeft: 1, textAlign: "left", color: "text.primary", fontSize: "var(--ntfy-card-attachment)" }}
+        >
           <b>{attachment.name}</b>
           {maybeInfoText}
         </Typography>
